@@ -29,7 +29,7 @@ def run_sift_matching(img_dir, db_file, debug_folder=None):
                                     --SiftExtraction.max_image_size 10000  \
                                     --SiftExtraction.estimate_affine_shape 0 \
                                     --SiftExtraction.domain_size_pooling 1 \
-                                    --SiftExtraction.max_num_features 20000 \
+                                    --SiftExtraction.max_num_features 8192 \
                                     --SiftExtraction.num_threads {} \
                                     --SiftExtraction.use_gpu 1 \
                                     --SiftExtraction.gpu_index {}'.format(db_file, img_dir, multiprocessing.cpu_count(), gpu_index)
@@ -41,7 +41,7 @@ def run_sift_matching(img_dir, db_file, debug_folder=None):
                                         --SiftMatching.guided_matching 1 \
                                         --SiftMatching.num_threads 6 \
                                         --SiftMatching.max_error 3 \
-                                        --SiftMatching.max_num_matches 50000 \
+                                        --SiftMatching.max_num_matches 16384 \
                                         --SiftMatching.use_gpu 1 \
                                         --SiftMatching.gpu_index {}'.format(db_file, gpu_index)
     if debug_folder is not None:
