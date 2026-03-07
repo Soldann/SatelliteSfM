@@ -65,14 +65,20 @@ Handles all dependencies (ColmapForVisSat compiled from source, CUDA, GDAL, Pyth
 
 **Requirements:** Docker with [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
-**Pre-download the Miniconda installer** (required at build time — network unavailable during Docker build):
+**Pull the pre-built image from GHCR** (fastest — skips ~30–45 min compilation):
+```bash
+docker compose pull
+```
+
+**Or build the image locally** (required if you modify the Dockerfile):
+
+Pre-download the Miniconda installer first (network is unavailable during Docker build):
 ```bash
 wget https://repo.anaconda.com/miniconda/Miniconda3-py38_4.12.0-Linux-x86_64.sh -O Miniconda3-installer.sh
 ```
 
-**Build the image** (~30–45 min, compiles ColmapForVisSat from source):
 ```bash
-docker build -t satellitesfm .
+docker compose build   # ~30–45 min, compiles ColmapForVisSat from source
 ```
 
 **Run interactively:**
@@ -256,13 +262,16 @@ data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_skew/
 
 ### Complete Workflow Example
 
-End-to-end processing of JAX scene 004:
+End-to-end processing of JAX scene 004 (single scene):
 
 ```bash
+# 0. Pull Docker image (one-time)
+docker compose pull
+
 # 1. Download and extract DFC2019 (manual step)
 #    → data/Track3-RGB-1/, data/Track3-RGB-2/, data/Track3-Truth/
 
-# 2. Initial preprocessing
+# 2. Initial preprocessing (runs outside Docker; no GPU needed)
 python preprocess_track3/preprocess_track3.py \
     --base_view_dir data/Track3-RGB-1 \
     --base_dsm_dir data/Track3-Truth \
@@ -270,18 +279,26 @@ python preprocess_track3/preprocess_track3.py \
 
 # 3. Prepare scene inputs
 python prepare_input.py --scene_id 004 --city JAX
+#    Output: data/DFC2019_processed/JAX_004/inputs/
 
-# 4. Run SatelliteSfM (Docker)
+# [Optional] Merge multiple scenes into a shared coordinate system
+# python merge_scenes.py --scenes 004 005 --city JAX --output_name JAX_merged
+
+# 4. Run SatelliteSfM (requires GPU — use Docker)
 docker compose run satellitesfm python satellite_sfm.py \
     --input_folder data/DFC2019_processed/JAX_004/inputs \
     --output_folder data/DFC2019_processed/JAX_004/outputs_srtm \
     --run_sfm --use_srtm4 --enable_debug
+#    Output: data/DFC2019_processed/JAX_004/outputs_srtm/cameras_adjusted/
 
-# 5. Post-process
+# 5. Post-process (skew correction → format conversion → masks)
+chmod +x postprocess_scenes.sh
 ./postprocess_scenes.sh JAX_004
+#    Output: data/DFC2019_processed/JAX_004/outputs_skew/
 
-# 6. Ready for Skyfall-GS
+# 6. Dataset is ready for Skyfall-GS
 ls data/DFC2019_processed/JAX_004/outputs_skew/
+# cameras/  images/  masks/  transforms_train.json  transforms_test.json  points3D.txt
 ```
 
 ---
@@ -289,16 +306,30 @@ ls data/DFC2019_processed/JAX_004/outputs_skew/
 ### Batch Processing
 
 ```bash
+# 0. Pull Docker image (one-time)
+docker compose pull
+
 scenes=(JAX_004 JAX_068 JAX_214 OMA_001 OMA_175)
 
-# Prepare all inputs
+# 1. Preprocess JAX images (Track3-RGB-1) and OMA images (Track3-RGB-2)
+python preprocess_track3/preprocess_track3.py \
+    --base_view_dir data/Track3-RGB-1 \
+    --base_dsm_dir data/Track3-Truth \
+    --out_dir data/DFC2019_JAX_preprocessed
+
+python preprocess_track3/preprocess_track3.py \
+    --base_view_dir data/Track3-RGB-2 \
+    --base_dsm_dir data/Track3-Truth \
+    --out_dir data/DFC2019_OMA_preprocessed
+
+# 2. Prepare all scene inputs (use --symlink to save disk space)
 for scene in "${scenes[@]}"; do
     city=$(echo $scene | cut -d'_' -f1)
     scene_id=$(echo $scene | cut -d'_' -f2)
     python prepare_input.py --scene_id $scene_id --city $city --symlink
 done
 
-# Run SatelliteSfM for all scenes
+# 3. Run SatelliteSfM for all scenes
 for scene in "${scenes[@]}"; do
     docker compose run satellitesfm python satellite_sfm.py \
         --input_folder data/DFC2019_processed/${scene}/inputs \
@@ -306,7 +337,8 @@ for scene in "${scenes[@]}"; do
         --run_sfm --use_srtm4
 done
 
-# Post-process all at once
+# 4. Post-process all at once
+chmod +x postprocess_scenes.sh
 ./postprocess_scenes.sh "${scenes[@]}"
 ```
 
@@ -330,7 +362,7 @@ done
 - Should not happen with the Docker image; if it does, run:
   ```bash
   docker run --rm -e LD_LIBRARY_PATH=/app/preprocess_sfm/ColmapForVisSat/build/__install__/lib \
-      satellitesfm ldd /app/preprocess_sfm/ColmapForVisSat/build/__install__/bin/colmap | grep "not found"
+      ghcr.io/jayin92/satellitesfm:latest ldd /app/preprocess_sfm/ColmapForVisSat/build/__install__/bin/colmap | grep "not found"
   ```
   and add the missing package to the runtime apt stage in `Dockerfile`.
 
