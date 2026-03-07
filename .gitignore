@@ -193,3 +193,10 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+
+# Claude Code
+.claude/
+
+# Miniconda 3
+Miniconda3-installer.sh

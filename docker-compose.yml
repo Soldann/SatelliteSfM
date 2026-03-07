@@ -1,0 +1,20 @@
+services:
+  satellitesfm:
+    build: .
+    image: ghcr.io/jayin92/satellitesfm:latest
+    # GPU passthrough — requires nvidia-container-toolkit on the host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      # Mount data and outputs as volumes so datasets are not baked into the image.
+      # Place DFC2019 track files under ./data/ on the host.
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+    working_dir: /app
+    stdin_open: true
+    tty: true

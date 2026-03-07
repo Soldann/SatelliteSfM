@@ -2,78 +2,88 @@
 
 This repository is forked from [Kai-46/SatelliteSfM](https://github.com/Kai-46/SatelliteSfM). Special thanks to Kai Zhang for the original work!
 
-This repository provides tools for preparing datasets for [Skyfall-GS](https://github.com/jayin92/Skyfall-GS) from two different sources:
+It provides tools for preparing datasets for [Skyfall-GS](https://github.com/jayin92/Skyfall-GS) from two sources:
 
-1. **COLMAP reconstructions** - Convert existing COLMAP sparse reconstructions
-2. **Satellite imagery** - Process satellite images with RPC camera models
+1. **COLMAP reconstructions** — Convert existing COLMAP sparse reconstructions
+2. **Satellite imagery** — Process satellite images with RPC camera models using SatelliteSfM
+
+---
+
+## Table of Contents
+
+- [COLMAP Dataset Conversion](#colmap-dataset-conversion)
+- [Satellite Imagery Processing](#satellite-imagery-processing)
+  - [Environment Setup](#environment-setup)
+  - [Download DFC2019 Dataset](#download-dfc2019-dataset)
+  - [Pipeline](#pipeline)
+    - [1. Initial Preprocessing](#1-initial-preprocessing)
+    - [2. Prepare Scene Inputs](#2-prepare-scene-inputs)
+    - [3. Run SatelliteSfM](#3-run-satellitesfm)
+    - [4. Post-Processing](#4-post-processing)
+  - [Complete Workflow Example](#complete-workflow-example)
+  - [Batch Processing](#batch-processing)
+- [Troubleshooting](#troubleshooting)
+- [Background](#background)
+- [Citation](#citation)
 
 ---
 
 ## COLMAP Dataset Conversion
 
-If you already have reconstruction results from [COLMAP](https://github.com/colmap/colmap), you can convert them using the provided script.
+If you already have reconstruction results from [COLMAP](https://github.com/colmap/colmap), convert them with:
 
-### Usage
 ```bash
 python convert_colmap_datasets.py -s /path/to/colmap_output [--skip_calibration]
 ```
 
-### What it does
+This script reads the COLMAP sparse model at `<dataset>/sparse/0` and generates `transforms_train.json` and `transforms_test.json`, rotating and centering cameras so that the look-at point is at the scene origin with up vector `(0, 0, 1)`.
 
-This script:
-- Reads camera data from the COLMAP sparse model located at `<dataset>/sparse/0`
-- Generates `transforms_train.json` and `transforms_test.json` in the dataset directory
-- Automatically rotates and centers cameras so that:
-  - The look-at point is at the scene origin
-  - The up vector is `(0, 0, 1)`
-
-> **✓ Dataset Ready!** After conversion, your dataset is ready for training with [Skyfall-GS](https://github.com/jayin92/Skyfall-GS). Head over to the Skyfall-GS repository to train 3DGS models on your prepared dataset.
+> **Dataset ready!** After conversion, your dataset can be used directly with [Skyfall-GS](https://github.com/jayin92/Skyfall-GS).
 
 ---
 
 ## Satellite Imagery Processing
 
-### What is RPC (Rational Polynomial Camera) Model?
+### What is RPC?
 
-The RPC (Rational Polynomial Camera) model is a standard camera model used in satellite imagery that describes the relationship between 3D world coordinates and 2D image coordinates using rational polynomial functions.
+The RPC (Rational Polynomial Camera) model is a standard camera model for satellite imagery. Unlike pinhole cameras, it handles orbital motion, Earth curvature, and atmospheric distortion using rational polynomials to map between `(Lat, Lon, Alt)` world coordinates and `(Row, Col)` pixel coordinates:
 
-#### Overview
-
-Unlike traditional pinhole camera models used in computer vision, satellite imagery requires a different approach due to:
-- **Orbital motion** - The satellite is moving during image capture
-- **Earth curvature** - Large ground coverage areas where Earth's curvature matters
-- **Atmospheric effects** - Refraction and distortion through the atmosphere
-- **Complex optics** - Push-broom sensors and other specialized imaging systems
-
-The RPC model provides a **generalized, vendor-agnostic** representation that abstracts away these complexities into a mathematical model.
-
-#### Mathematical Formulation
-
-The RPC model uses rational polynomials to map between:
-- **(Lat, Lon, Alt)** - 3D world coordinates (latitude, longitude, altitude)
-- **(Row, Col)** - 2D image pixel coordinates
-
-The transformation is expressed as:
 ```
 Row = P1(X,Y,Z) / P2(X,Y,Z)
 Col = P3(X,Y,Z) / P4(X,Y,Z)
 ```
 
-Where:
-- **P1, P2, P3, P4** are polynomial functions (typically cubic, with up to 20 coefficients each)
-- **X, Y, Z** are normalized 3D coordinates derived from Lat, Lon, Alt
-
-For more technical details, see the [RPC specification (GeoTIFF format)](http://geotiff.maptools.org/rpc_prop.html).
+See the [RPC specification](http://geotiff.maptools.org/rpc_prop.html) for details.
 
 ---
 
-### Installation
+### Environment Setup
 
-**Requirements:**
-- Linux machine with at least one GPU
-- Conda package manager
+#### Option A: Docker (recommended)
 
-**Setup:**
+Handles all dependencies (ColmapForVisSat compiled from source, CUDA, GDAL, Python packages) without requiring a specific OS or compiler.
+
+**Requirements:** Docker with [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+
+**Pre-download the Miniconda installer** (required at build time — network unavailable during Docker build):
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-py38_4.12.0-Linux-x86_64.sh -O Miniconda3-installer.sh
+```
+
+**Build the image** (~30–45 min, compiles ColmapForVisSat from source):
+```bash
+docker build -t satellitesfm .
+```
+
+**Run interactively:**
+```bash
+docker compose run satellitesfm
+```
+
+#### Option B: Conda (local)
+
+Requires Ubuntu 18.04 (for GCC-7), at least one GPU, and conda installed.
+
 ```bash
 . ./env.sh
 ```
@@ -82,19 +92,17 @@ For more technical details, see the [RPC specification (GeoTIFF format)](http://
 
 ### Download DFC2019 Dataset
 
-This repository processes satellite imagery in `.tif` format with RPC camera metadata, following the format used in the public benchmark: [DFC2019 Track 3: Multi-View Semantic Stereo](https://ieee-dataport.org/open-access/data-fusion-contest-2019).
+The pipeline uses the [DFC2019 Track 3: Multi-View Semantic Stereo](https://ieee-dataport.org/open-access/data-fusion-contest-2019) benchmark — multi-view satellite imagery of Jacksonville (JAX) and Omaha (OMA).
 
-The dataset contains multi-view satellite imagery of two US cities:
-- **JAX** - Jacksonville, Florida
-- **OMA** - Omaha, Nebraska
+Download these three archives and extract into `data/`:
 
-**Required downloads:**
+| Archive | Size |
+|---|---|
+| Track 3 / Training data / RGB images 1/2 | 7.6 GB |
+| Track 3 / Training data / RGB images 2/2 | 7.6 GB |
+| Track 3 / Training data / Reference | 37.5 MB |
 
-1. Track 3 / Training data / RGB images 1/2 (7.6 GB)
-2. Track 3 / Training data / RGB images 2/2 (7.6 GB)
-3. Track 3 / Training data / Reference (37.46 MB)
-
-**Extract the files** into the `data/` directory with the following structure:
+Expected structure:
 ```
 data/
 ├── Track3-RGB-1/*.tif
@@ -102,91 +110,77 @@ data/
 └── Track3-Truth/[*.tif, *.txt]
 ```
 
+A preprocessed version is also available on [Google Drive](https://drive.google.com/drive/folders/1Do7oF36sCEBWrcIiCzgHbhF5kQMawjVo?usp=sharing).
+
 ---
 
-### Initial Preprocessing
+### Pipeline
 
-Run the preprocessing script to convert `.tif` images into the required format:
+#### 1. Initial Preprocessing
+
+Convert `.tif` images to PNG and extract RPC metadata:
+
 ```bash
-# Jacksonville dataset
+# Jacksonville (JAX)
 python preprocess_track3/preprocess_track3.py \
     --base_view_dir data/Track3-RGB-1 \
     --base_dsm_dir data/Track3-Truth \
     --out_dir data/DFC2019_JAX_preprocessed
 
-# Omaha dataset
+# Omaha (OMA)
 python preprocess_track3/preprocess_track3.py \
     --base_view_dir data/Track3-RGB-2 \
     --base_dsm_dir data/Track3-Truth \
     --out_dir data/DFC2019_OMA_preprocessed
 ```
 
-**Output structure:**
+Output:
 ```
 data/DFC2019_[JAX|OMA]_preprocessed/
 ├── cameras/          # Camera parameters
+├── images/           # Converted PNG images
+├── metas/            # RPC coefficients and metadata (JSON)
 ├── enu_bbx/          # ENU coordinate bounding boxes
 ├── enu_observers/    # Observer positions in ENU coordinates
-├── groundtruth_u/    # Ground truth data
-├── images/           # Converted PNG images
 ├── latlonalt_bbx/    # Lat/Lon/Alt bounding boxes
-└── metas/            # RPC coefficients and metadata (JSON)
+└── groundtruth_u/    # Ground truth data
 ```
 
----
+#### 2. Prepare Scene Inputs
 
-### Prepare Scene Inputs
+Organize images by scene ID:
 
-Organize the preprocessed data by scene ID for SatelliteSfM processing.
-
-#### Usage
 ```bash
-# Basic usage - organize JAX scene 004
-python prepare_input.py --scene_id 004
-
-# Organize OMA scene 068
-python prepare_input.py --scene_id 068 --city OMA
+# Basic usage
+python prepare_input.py --scene_id 004              # JAX scene 004
+python prepare_input.py --scene_id 068 --city OMA   # OMA scene 068
 
 # Use symlinks to save disk space
 python prepare_input.py --scene_id 004 --symlink
 ```
 
-#### Advanced Options
-```bash
-# Custom paths
-python prepare_input.py --scene_id 004 \
-    --track_rgb_dir /custom/path/Track3-RGB-1 \
-    --preprocessed_dir /custom/path/DFC2019_JAX_preprocessed \
-    --output_dir /custom/output
-
-# Process OMA with Track3-RGB-2
-python prepare_input.py --scene_id 068 --city OMA \
-    --track_rgb_dir data/Track3-RGB-2
-```
-
-#### What it does
-
-This script:
-- Finds all `.tif` images matching the scene ID pattern (e.g., `JAX_004_*_RGB.tif`)
-- Copies or symlinks images to the organized structure
-- Copies the bounding box JSON file for the scene
-- Creates the following output structure:
+Output:
 ```
 data/DFC2019_processed/{CITY}_{SCENE_ID}/inputs/
 ├── images/
-│   ├── {CITY}_{SCENE_ID}_*.tif
-│   └── ...
+│   └── {CITY}_{SCENE_ID}_*_RGB.tif
 └── latlonalt_bbx.json
 ```
 
----
+#### 3. Run SatelliteSfM
 
-### Run SatelliteSfM
+Perform structure-from-motion reconstruction on the satellite imagery:
 
-Execute the SatelliteSfM pipeline to perform structure-from-motion reconstruction on the satellite imagery.
-
-#### Single Scene
 ```bash
+# With Docker
+docker compose run satellitesfm python satellite_sfm.py \
+    --input_folder data/DFC2019_processed/JAX_004/inputs \
+    --output_folder data/DFC2019_processed/JAX_004/outputs_srtm \
+    --run_sfm \
+    --use_srtm4 \
+    --enable_debug
+
+# Without Docker
 python satellite_sfm.py \
     --input_folder data/DFC2019_processed/JAX_004/inputs \
     --output_folder data/DFC2019_processed/JAX_004/outputs_srtm \
@@ -195,123 +189,78 @@ python satellite_sfm.py \
     --enable_debug
 ```
 
-#### Parameters
+| Flag | Description |
+|---|---|
+| `--run_sfm` | Enable SfM reconstruction |
+| `--use_srtm4` | Fetch SRTM4 elevation data for altitude initialization |
+| `--enable_debug` | Output visualizations to `outputs_srtm/debug_sfm/` |
 
-- `--input_folder`: Path to the prepared scene inputs
-- `--output_folder`: Path where reconstruction outputs will be saved
-- `--run_sfm`: Enable structure-from-motion reconstruction
-- `--use_srtm4`: Use SRTM4 (Shuttle Radar Topography Mission) elevation data for better initialization
-- `--enable_debug`: Enable debug mode for additional logging and visualizations
-
-#### Output Structure
+Output:
 ```
 data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_srtm/
 ├── colmap_triangulate_postba/
 │   ├── cameras.bin
 │   ├── images.bin
 │   └── points3D.txt
-├── camera_poses/
-├── depth_maps/
-└── [other reconstruction artifacts]
+├── cameras_adjusted/   # Bundle-adjusted pinhole cameras (K, W2C matrices)
+├── images/             # PNG images
+└── enu_bbx_adjusted.json
 ```
 
----
-### Post-Processing
+#### 4. Post-Processing
 
-After running SatelliteSfM, post-process the results to perform skew correction, convert to the final format, and generate masks for valid pixels.
+Applies skew correction, converts to Skyfall-GS format, and generates masks:
 
-#### Usage
-```bash
-# Process specific scenes
-./postprocess_scenes.sh JAX_004 OMA_068 JAX_214
-
-# Process a single scene
-./postprocess_scenes.sh JAX_004
-
-# Mix of JAX and OMA scenes
-./postprocess_scenes.sh JAX_004 JAX_068 OMA_001 OMA_175
-
-# Use default scenes (edit the script to customize)
-./postprocess_scenes.sh
-```
-
-#### What it does
-
-For each scene, the script performs four steps:
-
-1. **Skew Correction** - Corrects geometric distortions using SRTM elevation data
-```bash
-   python skew_correct.py \
-       --input_folder data/DFC2019_processed/{SCENE}/outputs_srtm \
-       --output_folder data/DFC2019_processed/{SCENE}/outputs_skew
-```
-
-2. **Dataset Conversion** - Converts to the final format required by Skyfall-GS
-```bash
-   python convert_datasets.py \
-       --input_folder data/DFC2019_processed/{SCENE}/outputs_skew
-```
-
-3. **Copy 3D Points** - Copies the reconstructed 3D point cloud
-```bash
-   cp data/DFC2019_processed/{SCENE}/outputs_srtm/colmap_triangulate_postba/points3D.txt \
-      data/DFC2019_processed/{SCENE}/outputs_skew/
-```
-
-4. **Generate Masks** - Creates binary masks for valid (non-black) pixels
-```bash
-   python generate_masks.py \
-       --input_dir data/DFC2019_processed/{SCENE}/outputs_skew/images \
-       --output_dir data/DFC2019_processed/{SCENE}/outputs_skew/masks
-```
-
-#### Advanced Options
-```bash
-# Skip specific steps
-./postprocess_scenes.sh --skip-skew JAX_004      # Skip skew correction
-./postprocess_scenes.sh --skip-convert JAX_004   # Skip dataset conversion
-./postprocess_scenes.sh --skip-copy JAX_004      # Skip points3D.txt copy
-./postprocess_scenes.sh --skip-mask JAX_004      # Skip mask generation
-
-# Dry run (see what would be executed without running)
-./postprocess_scenes.sh --dry-run JAX_004
-
-# Use custom base directory
-./postprocess_scenes.sh --base-dir /custom/path JAX_004
-
-# Get help
-./postprocess_scenes.sh --help
-```
-
-Make the script executable:
 ```bash
 chmod +x postprocess_scenes.sh
+
+# Single scene
+./postprocess_scenes.sh JAX_004
+
+# Multiple scenes
+./postprocess_scenes.sh JAX_004 OMA_068 JAX_214
 ```
 
-#### Final Output Structure
+Steps performed for each scene:
+1. **Skew correction** — corrects geometric distortion using SRTM elevation data
+2. **Format conversion** — converts to Skyfall-GS format (`transforms_train.json`, `transforms_test.json`)
+3. **Copy 3D points** — copies `points3D.txt` from SfM output
+4. **Mask generation** — creates binary masks for valid (non-black) pixels
+
+Advanced options:
+```bash
+./postprocess_scenes.sh --skip-skew JAX_004      # Skip skew correction
+./postprocess_scenes.sh --skip-convert JAX_004   # Skip format conversion
+./postprocess_scenes.sh --skip-copy JAX_004      # Skip points3D.txt copy
+./postprocess_scenes.sh --skip-mask JAX_004      # Skip mask generation
+./postprocess_scenes.sh --dry-run JAX_004        # Preview without executing
+./postprocess_scenes.sh --base-dir /custom JAX_004
+```
+
+Final output:
 ```
 data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_skew/
-├── cameras/                 # Camera parameters
-├── images/                  # Converted PNG images
-│   ├── *.png
-│   └── ...
-├── masks/                   # Binary masks for valid pixels
-│   ├── *.npy               # NumPy format (for processing)
-│   ├── *.png               # PNG format (for visualization)
-│   └── ...
-├── transforms_train.json    # Training camera transforms
-├── transforms_test.json     # Testing camera transforms
-└── points3D.txt            # 3D point cloud
+├── cameras/
+├── images/*.png
+├── masks/
+│   ├── *.npy
+│   └── *.png
+├── transforms_train.json
+├── transforms_test.json
+└── points3D.txt
 ```
+
+> **Dataset ready!** This output can be used directly with [Skyfall-GS](https://github.com/jayin92/Skyfall-GS).
 
 ---
 
-## Complete Workflow Example
+### Complete Workflow Example
 
-Here's a complete example processing JAX scene 004 from start to finish:
+End-to-end processing of JAX scene 004:
+
 ```bash
-# 1. Download and extract DFC2019 dataset (manual step)
-#    Place files in data/Track3-RGB-1, data/Track3-RGB-2, data/Track3-Truth
+# 1. Download and extract DFC2019 (manual step)
+#    → data/Track3-RGB-1/, data/Track3-RGB-2/, data/Track3-Truth/
 
 # 2. Initial preprocessing
 python preprocess_track3/preprocess_track3.py \
@@ -322,49 +271,42 @@ python preprocess_track3/preprocess_track3.py \
 # 3. Prepare scene inputs
 python prepare_input.py --scene_id 004 --city JAX
 
-# 4. Run SatelliteSfM reconstruction
-python satellite_sfm.py \
+# 4. Run SatelliteSfM (Docker)
+docker compose run satellitesfm python satellite_sfm.py \
     --input_folder data/DFC2019_processed/JAX_004/inputs \
     --output_folder data/DFC2019_processed/JAX_004/outputs_srtm \
-    --run_sfm \
-    --use_srtm4 \
-    --enable_debug
+    --run_sfm --use_srtm4 --enable_debug
 
-# 5. Post-process results
+# 5. Post-process
 ./postprocess_scenes.sh JAX_004
 
-# 6. Final outputs ready for Skyfall-GS training
+# 6. Ready for Skyfall-GS
 ls data/DFC2019_processed/JAX_004/outputs_skew/
 ```
 
 ---
 
-## Batch Processing Multiple Scenes
+### Batch Processing
 
-Process multiple scenes efficiently:
 ```bash
-# Define scenes to process
 scenes=(JAX_004 JAX_068 JAX_214 OMA_001 OMA_175)
 
-# Step 1: Prepare all scene inputs
+# Prepare all inputs
 for scene in "${scenes[@]}"; do
     city=$(echo $scene | cut -d'_' -f1)
     scene_id=$(echo $scene | cut -d'_' -f2)
-    
     python prepare_input.py --scene_id $scene_id --city $city --symlink
 done
 
-# Step 2: Run SatelliteSfM for all scenes
+# Run SatelliteSfM for all scenes
 for scene in "${scenes[@]}"; do
-    python satellite_sfm.py \
+    docker compose run satellitesfm python satellite_sfm.py \
         --input_folder data/DFC2019_processed/${scene}/inputs \
         --output_folder data/DFC2019_processed/${scene}/outputs_srtm \
-        --run_sfm \
-        --use_srtm4 \
-        --enable_debug
+        --run_sfm --use_srtm4
 done
 
-# Step 3: Post-process all scenes at once
+# Post-process all at once
 ./postprocess_scenes.sh "${scenes[@]}"
 ```
 
@@ -372,33 +314,94 @@ done
 
 ## Troubleshooting
 
-### Common Issues
+**"No images found matching pattern"**
+- Scene ID must be zero-padded (e.g., `"004"` not `"4"`)
+- Verify `.tif` files exist in the Track3-RGB directory
 
-**Issue: "No images found matching pattern"**
-- Check that the scene ID format is correct (e.g., "004" not "4")
-- Verify that `.tif` files exist in the Track3-RGB directory
-- Ensure preprocessing was run successfully
+**"Input folder does not exist"**
+- Run `prepare_input.py` before `satellite_sfm.py`
+- Check scene ID and city code are correct
 
-**Issue: "Input folder does not exist"**
-- Make sure you've run `prepare_input.py` before `satellite_sfm.py`
-- Check that the scene ID and city code are correct
+**SatelliteSfM fails with SRTM errors**
+- SRTM data is downloaded at runtime — ensure internet access inside the container
+- Fall back to manual altitude: edit `latlonalt_bbx.json` and remove `--use_srtm4`
 
-**Issue: SatelliteSfM fails with SRTM errors**
-- Ensure you have internet connectivity (SRTM data is downloaded automatically)
-- Try running without `--use_srtm4` flag as a fallback
+**COLMAP binary fails to load (`libXXX.so not found`)**
+- Should not happen with the Docker image; if it does, run:
+  ```bash
+  docker run --rm -e LD_LIBRARY_PATH=/app/preprocess_sfm/ColmapForVisSat/build/__install__/lib \
+      satellitesfm ldd /app/preprocess_sfm/ColmapForVisSat/build/__install__/bin/colmap | grep "not found"
+  ```
+  and add the missing package to the runtime apt stage in `Dockerfile`.
 
-**Issue: Post-processing script fails**
-- Make sure the script is executable: `chmod +x postprocess_scenes.sh`
-- Verify that SatelliteSfM completed successfully
-- Check that all required Python dependencies are installed
+**`No module named '_gdal_array'`**
+- This means GDAL was compiled before numpy. Rebuild the image — the current `Dockerfile` installs numpy first.
+
+**GPU not detected in container**
+- Ensure [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed and configured
+- Test with: `docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu18.04 nvidia-smi`
+
+---
+
+## Background
+
+This repo is built on top of [Kai-46/SatelliteSfM](https://github.com/Kai-46/SatelliteSfM), which bridges the gap between computer vision SfM pipelines and remote sensing satellite imagery. The key insight is that satellite images can be processed through standard SfM pipelines if the RPC camera model is first converted to a pinhole model — enabling downstream use of tools like COLMAP, NeRF, and 3DGS.
+
+### Development Roadmap (upstream)
+
+- [x] SatelliteSfM
+- [x] [SatelliteNeRF](https://github.com/Kai-46/SatelliteNeRF)
+- [x] Camera visualization scripts
+- [x] [ColmapForVisSatPatched](https://github.com/SBCV/ColmapForVisSatPatched) (patches for latest COLMAP)
+- [x] [SatelliteNeuS](https://github.com/Kai-46/SatelliteNeuS)
+- [ ] SatellitePlaneSweep / SatelliteNeRF / SatelliteNeuS documentation
+- [ ] Deep Satellite Stereo
+
+### Relevant Repos
+
+- [SatelliteNeRF](https://github.com/Kai-46/SatelliteNeRF) — neural radiance fields for satellite imagery
+- [SatelliteNeuS](https://github.com/Kai-46/SatelliteNeuS) — mesh reconstruction from multi-date satellite images
+- [ColmapForVisSatPatched](https://github.com/SBCV/ColmapForVisSatPatched) — updated COLMAP fork
+
+### Float32 Pitfall for Downstream Applications
+
+Satellite cameras are far from the scene, producing huge depth values. When using float32 GPU computing (NeRF, MVS, deep stereo), precision loss can cause artifacts. Use `normalize_sfm_reconstruction.py` to center and scale the scene, then adjust `pixel2ray` to use float64 internally:
+
+```python
+def pixel2ray(col, row, K, W2C):
+    C2W = torch.inverse(W2C)  # float64
+    px = torch.stack((col, row, torch.ones_like(col)), axis=-1).unsqueeze(-1).double()
+    ray_d = torch.matmul(C2W[:3, :3], torch.matmul(torch.inverse(K[:3, :3]), px))
+    ray_d = (ray_d / ray_d.norm(dim=1, keepdims=True)).squeeze(-1)
+    ray_o = C2W[:3, 3].unsqueeze(0).expand(ray_d.shape[0], -1)
+    shift = torch.norm(ray_o, dim=-1) - 5.
+    ray_o = ray_o + ray_d * shift.unsqueeze(-1)
+    return ray_o.float(), ray_d.float()
+```
+
+### Example Results
+
+**Input images**
+
+![Input images](./readme_resources/example_data.gif)
+
+**Sparse point cloud from SfM**
+
+![Sparse point cloud](./readme_resources/example_data_sfm.gif)
+
+**Camera visualization** (`python visualize_satellite_cameras.py`)
+
+Red/Green/Blue axes = East/North/Up. Each camera is a line from origin to camera center.
+
+![Visualize cameras](./readme_resources/visualize_camera.png)
 
 ---
 
 ## Citation
 
-If you use this preprocessing pipeline, please cite the original SatelliteSfM work, COLMAP, the DFC2019 dataset and our work.
+If you use this pipeline, please cite:
 
-```
+```bibtex
 @inproceedings{VisSat-2019,
   title={Leveraging Vision Reconstruction Pipelines for Satellite Imagery},
   author={Zhang, Kai and Sun, Jin and Snavely, Noah},
@@ -431,227 +434,3 @@ If you use this preprocessing pipeline, please cite the original SatelliteSfM wo
   archivePrefix = {arXiv}
 }
 ```
-
-> Below is the original README
----
-
-# Satellite Structure from Motion
-
-Maintained by [Kai Zhang](https://kai-46.github.io/website/).
-
-## Why this repo?
-
-I started my computer vision research journey with satellite stereo being my first project. Working on that problem makes me feel that there seems to be an unnesseary[?] gap between how the stereo problems are approached in the computer vision community and remote sensing community. And moreover, satellite images seem to attract relatively less attention from the vast computer vision community. I was guessing perhaps this was due to the limited satellite image availability, which seems to be improving these days. With the increasing availability of satellite datasets, I am hoping to further simplify the access to satellite stereo problems for computer vision researchers' and practitioners' with this repo.
-
-## Development roadmaps (Open-source contributions are always welcome!)
-
-- [x] release SatelliteSfM
-- [x] release [SatelliteNeRF](https://github.com/Kai-46/SatelliteNeRF) as downstream neural rendering applications
-- [x] release scripts to visualize SatelliteSfM output cameras in 3D
-- [x] release [TRACK 3: MULTI-VIEW SEMANTIC STEREO](https://ieee-dataport.org/open-access/data-fusion-contest-2019-dfc2019) data preprocessed by SatelliteSfM
-- [x] re-write [ColmapForVisSat](https://github.com/Kai-46/ColmapForVisSat) as patches to latest [Colmap](https://github.com/colmap/colmap): SfM first, followed by MVS, and finally meshing. You can find the re-written version [ColmapForVisSatPatched](https://github.com/SBCV/ColmapForVisSatPatched). Thanks to @SBCV. 
-- [x] release [SatelliteNeuS](https://github.com/Kai-46/SatelliteNeuS) that can reconstruct meshes from multi-date satellite images with varying illuminations 
-- [x] draw a road map
-- [ ] improve documentations of the [SatellitePlaneSweep](https://github.com/Kai-46/SatellitePlaneSweep) and [SatelliteNeRF](https://github.com/Kai-46/SatelliteNeRF) and [SatelliteNeuS](https://github.com/Kai-46/SatelliteNeuS)
-- [ ] port [SatelliteSurfaceReconstruction](https://github.com/SBCV/SatelliteSurfaceReconstruction) meshing algorithm to the new API
-- [ ] release Deep Satellite Stereo as downstream MVS algorithms
-- [ ] release code to rectify satellite stereo pairs based on the SatelliteSfM outputs
-- [ ] release code to run stereo matching on rectified stereo pairs, including both classical and deep ones
-
-<img width="1359" alt="roadmap" src="https://user-images.githubusercontent.com/21653654/164472067-abb78d47-deab-4b95-8a62-5ce38a78966d.png">
-
-## Relevant repos for downstream applications
-
-- [Satellite-based Neural Radiance Fields](https://github.com/Kai-46/SatelliteNeRF)
-
-## Overview
-
-- This is a library dedicated to solving the satellite structure from motion problem.
-- It's a wrapper of the [VisSatSatelliteStereo repo](https://github.com/Kai-46/VisSatSatelliteStereo) for easier use.
-- The outputs are png images and **OpenCV-compatible** pinhole cameras readily deployable to multi-view stereo pipelines targetting ground-level images.
-
-## Installation
-
-Assume you are on a Linux machine with at least one GPU, and have conda installed. Then to install this library, simply by:
-
-```bash
-. ./env.sh
-```
-
-## Inputs
-
-We assume the inputs to be a set of .tif images encoding the 3-channel uint8 RGB colors, and the metadata like RPC cameras.
-This data format is to align with the public satellite benchmark: [TRACK 3: MULTI-VIEW SEMANTIC STEREO](https://ieee-dataport.org/open-access/data-fusion-contest-2019-dfc2019).
-Download one example data from this [google drive](https://drive.google.com/drive/folders/11UeurSa-dyfaRUIdUZFfNBAyd3jN7D46?usp=sharing); folder structure look like below:
-
-```
-- examples/inputs
-    - images/
-        - *.tif
-        - *.tif
-        - *.tif
-        - ...
-    - latlonalt_bbx.json
-```
-
-, where ```latlonalt_bbx.json``` specifies the bounding box for the site of interest in the global (latitude, longitude, altitude) coordinate system.
-
-If you are not sure what is a reasonably good altitude range, you can put random numbers in the json file, but you have to enable the ```--use_srtm4``` option below.  
-
-## Run Structure from Motion
-
-```bash
-python satellite_sfm.py --input_folder examples/inputs --output_folder examples/outputs --run_sfm [--use_srtm4] [--enable_debug]
-```
-
-The ```--enable_debug``` option outputs some visualization helpful debugging the structure from motion quality.
-
-## Outputs
-
-- ```{output_folder}/images/``` folder contains the png images
-- ```{output_folder}/cameras_adjusted/``` folder contains the bundle-adjusted pinhole cameras; each camera is represented by a pair of 4x4 K, W2C matrices that are OpenCV-compatible.
-- ```{output_folder}/enu_bbx_adjusted.json``` contains the scene bounding box in the local ENU Euclidean coordinate system.
-- ```{output_folder}/enu_observer_latlonalt.json``` contains the observer coordinate for defining the local ENU coordinate; essentially, this observer coordinate is only necessary for coordinate conversion between local ENU and global latitude-longitude-altitude.
-
-If you turn on the ```--enable_debug``` option, you might want to dig into the folder ```{output_folder}/debug_sfm``` for visuals, etc.
-
-## Citations
-
-```
-@inproceedings{VisSat-2019,
-  title={Leveraging Vision Reconstruction Pipelines for Satellite Imagery},
-  author={Zhang, Kai and Sun, Jin and Snavely, Noah},
-  booktitle={IEEE International Conference on Computer Vision Workshops},
-  year={2019}
-}
-
-@inproceedings{schoenberger2016sfm,
-  author={Sch\"{o}nberger, Johannes Lutz and Frahm, Jan-Michael},
-  title={Structure-from-Motion Revisited},
-  booktitle={Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year={2016},
-}
-```
-
-## Example results
-
-### input images
-
-![Input images](./readme_resources/example_data.gif)
-
-### sparse point cloud ouput by SfM
-
-![Sparse point cloud](./readme_resources/example_data_sfm.gif)
-
-### Visualize cameras
-
-```
-python visualize_satellite_cameras.py
-```
-
-Red, Green, Blue axes denote east, north, up directions, respectively. For simplicity, each camera is represented by a line pointing from origin to that camera center.
-![Visualize cameras](./readme_resources/visualize_camera.png)
-
-### homograhpy-warp one view, then average with another by a plane sequence
-
-![Sweep plane](./readme_resources/sweep_plane.gif)
-[high-res video](https://drive.google.com/file/d/13TshDCsHTx0J7X6UFd0zglutQkD8NgyK/view?usp=sharing)
-
-### inspect epipolar geometry
-
-```
-python inspect_epipolar_geometry.py
-```
-
-![inspect epipolar](./readme_resources/debug_epipolar.png)
-
-### get zero-skew intrincics marix
-
-```
-python skew_correct.py --input_folder ./examples/outputs ./examples/outputs_zeroskew
-```
-
-![skew correct](./readme_resources/skew_correct.png)
-
-## Downstream applications
-
-One natural task following this SatelliteSfM is to acquire the dense reconstruction by classical patch-based MVS, or mordern deep MVS, or even neural rendering like NeRF. When working with these downstream algorithms, be careful of the float32 pitfall caused by the huge depth values as a result of **satellite cameras being distant from the scene**; this is particularly worthy of attention with the prevalent float32 GPU computing.  
-
-[Note: this SatelliteSfM library doesn't have such issue for the use of float64.]
-
-### pitfall of float32 arithmetic
-
-![numeric precison](./readme_resources/numeric_precision.png)
-
-### overcome float32 pitfall for NeRF
-
-Center and scale scene to be inside unit sphere by:
-
-```bash
-python normalize_sfm_reconstruction.py
-```
-
-Modify how ```pixel2ray``` is computed for NeRF-based models, while keeping the other parts unchanged:
-
-```python
-import torch
-
-def pixel2ray(col: torch.Tensor, row: torch.Tensor, K: torch.DoubleTensor, W2C: torch.DoubleTensor):
-    '''
-    Assume scene is centered and inside unit sphere.
-
-    col, row: both [N, ]; float32
-    K, W2C: 4x4 opencv-compatible intrinsic and W2C matrices; float64
-
-    return:
-        ray_o, ray_d: [N, 3]; float32
-    '''
-    C2W = torch.inverse(W2C)  # float64
-    px = torch.stack((col, row, torch.ones_like(col)), axis=-1).unsqueeze(-1)  # [N, 3, 1]; float64
-    K_inv = torch.inverse(K[:3, :3]).unsqueeze(0).expand(px.shape[0], -1, -1)  # [N, 3, 3]; float64
-    c2w_rot = C2W[:3, :3].unsqueeze(0).expand(px.shape[0], -1, -1) # [N, 3, 3]; float64
-    ray_d = torch.matmul(c2w_rot, torch.matmul(K_inv, px.double())) # [N, 3, 1]; float64
-    ray_d = (ray_d / ray_d.norm(dim=1, keepdims=True)).squeeze(-1) # [N, 3]; float64
-
-    ray_o = C2W[:3, 3].unsqueeze(0).expand(px.shape[0], -1) # [N, 3]; float64
-    # shift ray_o along ray_d towards the scene in order to shrink the huge depth
-    shift = torch.norm(ray_o, dim=-1) - 5.  # [N, ]; float64; 5. here is a small margin
-    ray_o = ray_o + ray_d * shift.unsqueeze(-1)  # [N, 3]; float64
-    return ray_o.float(), ray_d.float()
-```
-<!-- ![novel view](./readme_resources/novel_view.gif) -->
-<https://user-images.githubusercontent.com/21653654/153779703-36b50265-ae3b-41ac-8139-2e0bf081f28d.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779789-93f68ce9-9cc4-4947-81de-d6d2104ae0ac.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779889-8116d7ee-8a4d-474c-8d52-3b1f0e175104.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779898-dba46433-143e-499a-9315-4316747e6e59.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779906-b4196d7d-afd7-4fde-b691-0d7c6a785f8b.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779913-36931e65-2739-4d35-8901-22808d8eaced.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779919-5157b7df-d59b-48f8-a66c-7982b600e01d.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779930-9902b8b3-b035-4c78-ac51-ff97dbb0f266.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153779937-74ef0a19-8ce8-4d87-84a3-357513c419ed.mp4>
-
-<https://user-images.githubusercontent.com/21653654/153780455-939f4e36-794b-4282-b9a1-c1b98e8a1866.mp4>
-
-### overcome float32 pitfall for neural point based graphics
-
-to be filled...
-
-### overcome float32 pitfall for plane sweep stereo, or patch-based stereo, or deep stereo
-
-to be filled...
-
-## preprocessed satellite multi-view stereo dataset with ground-truth
-
-This dataset can be used for evaluating multi-view stereo, running neural rendering, etc. You can download it from [google drive](https://drive.google.com/drive/folders/1Do7oF36sCEBWrcIiCzgHbhF5kQMawjVo?usp=sharing).
-
-## More handy scripts are coming
-
-Stay tuned :-)

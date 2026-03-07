@@ -21,5 +21,6 @@ fi
 CC=/usr/bin/gcc-7 CXX=/usr/bin/g++-7 \
             python3 ColmapForVisSat/scripts/python/build.py \
                             --build_path ColmapForVisSat/build \
-                            --colmap_path ColmapForVisSat 2>&1 | tee ColmapForVisSat/build_log.txt
+                            --colmap_path ColmapForVisSat \
+                            --without_suite_sparse 2>&1 | tee ColmapForVisSat/build_log.txt
 cd $cur_dir

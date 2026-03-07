@@ -1,0 +1,20 @@
+# Large datasets — mount via docker-compose volumes instead
+data/
+thumbnails/
+
+# ColmapForVisSat source and build artifacts — freshly cloned during Docker build.
+# Exclude everything EXCEPT the pre-downloaded dependency zips, which build.py
+# uses to avoid network access at build time.
+preprocess_sfm/ColmapForVisSat/
+!preprocess_sfm/ColmapForVisSat/build/__download__/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Git history
+.git/
+
+# Output directories
+outputs/

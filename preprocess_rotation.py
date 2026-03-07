@@ -19,8 +19,8 @@ import argparse
 
 
 def parse_filename(filename: str) -> tuple:
-    """Extract scene ID and image ID from filename like JAX_004_006_RGB.png"""
-    match = re.match(r'JAX_(\d+)_(\d+)_RGB\.png', filename)
+    """Extract scene ID and image ID from filename like OMA_004_006_RGB.png"""
+    match = re.match(r'OMA_(\d+)_(\d+)_RGB\.png', filename)
     if match:
         return match.group(1), match.group(2)
     return None, None
@@ -270,7 +270,7 @@ def create_thumbnails(images_dir: str, output_dir: str,
     """Create pre-rotated thumbnails for faster loading in Streamlit."""
     os.makedirs(output_dir, exist_ok=True)
     
-    image_files = glob.glob(os.path.join(images_dir, 'JAX_*_*_RGB.png'))
+    image_files = glob.glob(os.path.join(images_dir, 'OMA_*_*_RGB.png'))
     
     for img_path in tqdm(image_files, desc="Creating thumbnails"):
         filename = os.path.basename(img_path)
@@ -299,10 +299,10 @@ def create_thumbnails(images_dir: str, output_dir: str,
 def main():
     parser = argparse.ArgumentParser(description='Precompute rotation alignments for satellite images')
     parser.add_argument('--images-dir', type=str, 
-                        default='/project/jayinnn/SatelliteSfM/data/DFC2019_JAX_preprocessed/images',
+                        default='/project/jayinnn/SatelliteSfM/data/DFC2019_OMA_preprocessed/images',
                         help='Directory containing satellite images')
     parser.add_argument('--metas-dir', type=str,
-                        default='/project/jayinnn/SatelliteSfM/data/DFC2019_JAX_preprocessed/metas',
+                        default='/project/jayinnn/SatelliteSfM/data/DFC2019_OMA_preprocessed/metas',
                         help='Directory containing metadata JSON files')
     parser.add_argument('--output', type=str,
                         default='/project/jayinnn/SatelliteSfM/rotation_offsets.json',
@@ -319,7 +319,7 @@ def main():
     print(f"Scanning images in: {args.images_dir}")
     
     # Group images by scene
-    image_files = glob.glob(os.path.join(args.images_dir, 'JAX_*_*_RGB.png'))
+    image_files = glob.glob(os.path.join(args.images_dir, 'OMA_*_*_RGB.png'))
     scenes = defaultdict(list)
     
     for img_path in image_files:
