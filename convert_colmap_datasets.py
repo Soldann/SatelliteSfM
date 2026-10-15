@@ -22,6 +22,7 @@ import json
 import numpy as np
 import shutil
 import subprocess
+from pathlib import Path
 
 from preprocess_sfm.colmap_sfm_utils import extract_camera_dict
 
@@ -49,6 +50,34 @@ def closest_point_2_lines(oa, da, ob, db): # returns point closest to both rays 
 	if tb > 0:
 		tb = 0
 	return (oa+ta*da+ob+tb*db) * 0.5, denom
+
+def convert_bin_to_txt_with_pycolmap(sparse_dir):
+    """
+    Convert COLMAP binary model files (*.bin) to text files (*.txt).
+
+    Args:
+        sparse_dir: Directory containing cameras.bin, images.bin, points3D.bin
+
+    Returns:
+        bool
+    """
+    try:
+        import pycolmap
+        sparse_dir = Path(sparse_dir)
+
+        print("Converting binary model to text format using PyCOLMAP...")
+
+        reconstruction = pycolmap.Reconstruction(str(sparse_dir))
+
+        reconstruction.write_text(str(sparse_dir))
+
+        print("✓ Successfully converted binary model to text format")
+        return True
+
+    except Exception as e:
+        print("Error: PyCOLMAP model conversion failed")
+        print(f"Error: {e}")
+        return False
 
 def convert_bin_to_txt_with_colmap(sparse_dir):
     """
@@ -114,6 +143,15 @@ def copy_or_convert_points3D(sparse_dir, output_dir):
         
         # Convert using COLMAP binary
         if convert_bin_to_txt_with_colmap(sparse_dir):
+            # After conversion, points3D.txt should exist
+            if os.path.exists(points3d_txt):
+                shutil.copy2(points3d_txt, output_txt)
+                print(f"✓ Copied converted points3D.txt")
+                return True
+            else:
+                print("Warning: Conversion succeeded but points3D.txt not found")
+                return False
+        elif convert_bin_to_txt_with_pycolmap(sparse_dir):
             # After conversion, points3D.txt should exist
             if os.path.exists(points3d_txt):
                 shutil.copy2(points3d_txt, output_txt)
